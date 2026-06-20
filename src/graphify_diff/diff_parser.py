@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import json
+import os
 import re
 import subprocess
 from dataclasses import dataclass, field
@@ -340,3 +342,113 @@ def get_changed_files_from_git(
         raise RuntimeError(f"git diff --name-only failed: {result.stderr.strip()}")
 
     return [f for f in result.stdout.strip().splitlines() if f]
+
+
+def _git_ref_exists(repo_path: Path, ref: str) -> bool:
+    """Return True if `ref` resolves to a commit in the repo."""
+    result = subprocess.run(
+        ["git", "-C", str(repo_path), "rev-parse", "--verify", "--quiet", f"{ref}^{{commit}}"],
+        capture_output=True, text=True,
+    )
+    return result.returncode == 0
+
+
+def current_head(repo_path: Path) -> str | None:
+    """Return the current HEAD commit SHA, or None if unavailable."""
+    result = subprocess.run(
+        ["git", "-C", str(repo_path), "rev-parse", "--verify", "--quiet", "HEAD"],
+        capture_output=True, text=True,
+    )
+    if result.returncode == 0 and result.stdout.strip():
+        return result.stdout.strip()
+    return None
+
+
+def detect_graph_baseline(repo_path: Path, graph_path: Path | None = None) -> str | None:
+    """Detect the git ref the current graph was built at, for auto-baselining.
+
+    Tries, in order:
+      1. the ``built_at_commit`` field Graphify writes into graph.json
+      2. the last commit that modified graph.json (when the graph is tracked)
+    Returns None if no usable baseline is found.
+    """
+    gp = graph_path or (repo_path / "graphify-out" / "graph.json")
+    if not gp.exists():
+        return None
+
+    # 1. Metadata embedded by Graphify
+    try:
+        raw = json.loads(gp.read_text(encoding="utf-8"))
+        commit = raw.get("built_at_commit")
+        if commit and _git_ref_exists(repo_path, str(commit)):
+            return str(commit)
+    except (json.JSONDecodeError, OSError):
+        pass
+
+    # 2. Last commit that touched the graph file
+    try:
+        rel = str(gp.resolve().relative_to(repo_path.resolve()))
+    except ValueError:
+        rel = str(gp)
+    result = subprocess.run(
+        ["git", "-C", str(repo_path), "log", "-1", "--format=%H", "--", rel],
+        capture_output=True, text=True,
+    )
+    if result.returncode == 0 and result.stdout.strip():
+        return result.stdout.strip()
+
+    return None
+
+
+_GRAPH_SKIP_DIRS = {
+    ".git", "node_modules", ".venv", "venv", "__pycache__",
+    "dist", "build", ".next", ".cache", ".mypy_cache", ".pytest_cache",
+}
+
+
+def _graph_score(path: Path) -> tuple[int, int]:
+    """Score a graph.json candidate: (has_built_at_commit, node_count). Higher is better."""
+    try:
+        raw = json.loads(path.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError):
+        return (0, 0)
+    return (1 if raw.get("built_at_commit") else 0, len(raw.get("nodes", [])))
+
+
+def find_graph_path(repo_path: Path, graph_path: str | Path | None = None) -> Path:
+    """Resolve the graph.json path, auto-discovering when not given.
+
+    When ``graph_path`` is None, searches the repo for ``graphify-out/graph.json``
+    outputs and picks the most complete one (preferring graphs with a
+    ``built_at_commit`` stamp and the most nodes). Returns the default path if
+    nothing is found — callers should check ``.exists()``.
+    """
+    if graph_path is not None:
+        return Path(graph_path)
+
+    repo = repo_path.resolve()
+    candidates: list[Path] = []
+
+    for root, dirs, files in os.walk(repo):
+        dirs[:] = [d for d in dirs if d not in _GRAPH_SKIP_DIRS]
+        try:
+            depth = len(Path(root).relative_to(repo).parts)
+        except ValueError:
+            dirs[:] = []
+            continue
+        if depth > 6:
+            dirs[:] = []
+            continue
+        if "graph.json" in files and Path(root).name == "graphify-out":
+            candidates.append(Path(root) / "graph.json")
+
+    default = repo / "graphify-out" / "graph.json"
+    if not any(c.resolve() == default for c in candidates):
+        candidates.append(default)
+
+    existing = [c for c in candidates if c.exists()]
+    if not existing:
+        return default
+    if len(existing) == 1:
+        return existing[0]
+    return max(existing, key=_graph_score)

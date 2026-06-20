@@ -10,22 +10,76 @@ from rich.console import Console
 from rich.table import Table
 from rich.panel import Panel
 
-from .diff_parser import get_git_diff, parse_diff
+from .diff_parser import detect_graph_baseline, find_graph_path, get_git_diff, parse_diff
 from .engine import apply_diff, run_from_git
 
 console = Console()
 
 
-@click.group()
+def _resolve_since(
+    repo_path: Path,
+    graph_path: Path | None,
+    since: str | None,
+    staged: bool,
+) -> str | None:
+    """Use an explicit --since if given; otherwise infer the baseline from the last graph build."""
+    if since is not None or staged:
+        return since
+    baseline = detect_graph_baseline(repo_path, graph_path)
+    if baseline:
+        label = baseline if len(baseline) <= 12 else baseline[:12]
+        console.print(f"[dim]Auto-baseline: diffing since {label} (last graph build)[/dim]")
+    return baseline
+
+
+def _announce_graph(repo_path: Path, gp: Path, explicit: bool) -> None:
+    """Print which graph is being used when it was auto-discovered off the default path."""
+    if explicit:
+        return
+    default = repo_path / "graphify-out" / "graph.json"
+    if gp.resolve() != default.resolve():
+        try:
+            shown = gp.relative_to(repo_path)
+        except ValueError:
+            shown = gp
+        console.print(f"[dim]Using graph at {shown}[/dim]")
+
+
+class GraphifyGroup(click.Group):
+    """Command group that accepts subcommands as flags (e.g. `graphify --analyze`)."""
+
+    _FLAG_COMMANDS = {
+        "--analyze": "analyze",
+        "--patch": "patch",
+        "--impact": "impact",
+    }
+
+    def parse_args(self, ctx, args):
+        rewritten = [self._FLAG_COMMANDS.get(arg, arg) for arg in args]
+        return super().parse_args(ctx, rewritten)
+
+
+@click.group(cls=GraphifyGroup, invoke_without_command=True)
 @click.version_option(version="0.1.0")
-def main():
+@click.pass_context
+def main(ctx):
     """graphify-diff: Incremental graph updates from git diffs.
 
     Patch a Graphify knowledge graph without re-extracting the entire codebase.
     Operates on git diffs to identify changed symbols and update the graph
     incrementally, cascading changes to dependent nodes.
+
+    Run a command from any directory by pointing it at a repo, or run it with no
+    arguments from inside a repo — the diff baseline is auto-detected from the
+    last graph build:
+
+        gdiff analyze
+        gdiff patch
+        gdiff --patch /path/to/repo --since HEAD~1
     """
-    pass
+    if ctx.invoked_subcommand is None:
+        click.echo(ctx.get_help())
+        ctx.exit()
 
 
 @main.command()
@@ -56,23 +110,28 @@ def patch(
 ):
     """Apply git diff to a Graphify graph.json.
 
+    Run with no arguments from inside a repo to patch against the last graph
+    build; pass --since to override the auto-detected baseline.
+
     Examples:
 
-        # Patch graph with unstaged changes
-        graphify-diff patch .
+        # Patch graph with changes since the last graph build
+        gdiff patch
 
         # Patch graph with changes since last commit
-        graphify-diff patch . --since HEAD~1
+        gdiff patch --since HEAD~1
 
         # Patch graph with changes on a branch
-        graphify-diff patch . --since main
+        gdiff patch . --since main
 
         # Dry run to see what would change
-        graphify-diff patch . --since HEAD~1 --dry-run
+        gdiff patch --since HEAD~1 --dry-run
     """
     repo_path = Path(repo).resolve()
-    gp = Path(graph_path) if graph_path else None
+    gp = find_graph_path(repo_path, graph_path)
+    _announce_graph(repo_path, gp, explicit=graph_path is not None)
     op = Path(output_path) if output_path else None
+    since = _resolve_since(repo_path, gp, since, staged)
 
     try:
         result = run_from_git(
@@ -143,10 +202,14 @@ def patch(
 def analyze(repo: str, since: str | None, staged: bool):
     """Analyze a git diff and show what would change (no graph needed).
 
-    This is a read-only operation that parses the git diff and shows
-    which files, symbols, and potential dependencies would be affected.
+    Read-only: parses the git diff and shows which files, symbols, and
+    potential dependencies would be affected. The diff baseline is
+    auto-detected from the last graph build when --since is omitted.
     """
     repo_path = Path(repo).resolve()
+    gp = find_graph_path(repo_path, None)
+    _announce_graph(repo_path, gp, explicit=False)
+    since = _resolve_since(repo_path, gp, since, staged)
 
     try:
         raw_diff = get_git_diff(repo_path, since=since, staged=staged)
@@ -214,18 +277,22 @@ def impact(repo: str, graph_path: str | None, since: str | None, depth: int):
     """Show the cascading impact of changes on the existing graph.
 
     Loads the existing graph and shows which nodes would be affected
-    by the changes, including transitive dependencies.
+    by the changes, including transitive dependencies. The diff baseline
+    is auto-detected from the last graph build when --since is omitted.
     """
     from .cascade import cascade_deleted_file, cascade_modified_file
     from .graph_patcher import load_graph
 
     repo_path = Path(repo).resolve()
-    gp = Path(graph_path) if graph_path else repo_path / "graphify-out" / "graph.json"
+    gp = find_graph_path(repo_path, graph_path)
+    _announce_graph(repo_path, gp, explicit=graph_path is not None)
 
     if not gp.exists():
-        console.print(f"[red]Graph not found at {gp}[/red]")
-        console.print("Run 'graphify extract' first to build the initial graph.")
+        console.print(f"[red]No graph found at {gp}[/red]")
+        console.print("Run 'graphify extract' first to build the initial graph, or pass --graph PATH.")
         sys.exit(1)
+
+    since = _resolve_since(repo_path, gp, since, staged=False)
 
     try:
         raw_diff = get_git_diff(repo_path, since=since)

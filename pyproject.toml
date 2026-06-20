@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "graphify-diff"
-version = "0.1.0"
+version = "0.2.0"
 description = "Incremental graph updates from git diffs — patch a Graphify knowledge graph without re-extracting the entire codebase"
 license = "MIT"
 requires-python = ">=3.10"
@@ -15,6 +15,7 @@ dependencies = [
 ]
 
 [project.scripts]
+gdiff = "graphify_diff.cli:main"
 graphify-diff = "graphify_diff.cli:main"
 
 [tool.hatch.build.targets.wheel]

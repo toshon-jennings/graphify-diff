@@ -27,27 +27,42 @@ pip install graphify-diff
 
 ## Usage
 
+`graphify-diff` installs a short `gdiff` command. Run it with **no arguments from
+inside a repo** — it auto-detects the repo and diffs against the last graph build
+(using the `built_at_commit` stamp Graphify writes into `graph.json`). Pass
+`--since` only to override that baseline. Every subcommand also works as a flag
+(`gdiff --analyze` is the same as `gdiff analyze`).
+
 ```bash
-# Analyze what would change (no graph needed)
-graphify-diff analyze /path/to/repo --since HEAD~1
+# From inside a repo — no args needed, baseline auto-detected
+gdiff analyze
+gdiff patch
 
-# Patch the graph with changes since last commit
-graphify-diff patch /path/to/repo --since HEAD~1
+# Dry run to see what would change before patching
+gdiff patch --dry-run
 
-# Dry run to see what would change
-graphify-diff patch /path/to/repo --since HEAD~1 --dry-run
+# Override the auto-detected baseline
+gdiff patch --since HEAD~1
+gdiff patch --since main
 
-# Patch with changes against main branch
-graphify-diff patch /path/to/repo --since main
+# Target a repo from anywhere
+gdiff analyze /path/to/repo
+gdiff patch /path/to/repo --since HEAD~1
 
 # Show cascading impact on existing graph
-graphify-diff impact /path/to/repo --since HEAD~1
+gdiff impact
 
 # Use a custom graph.json location
-graphify-diff patch /path/to/repo --graph /custom/path/graph.json
+gdiff patch /path/to/repo --graph /custom/path/graph.json
 
 # Output machine-readable JSON
-graphify-diff patch /path/to/repo --since HEAD~1 --json
+gdiff patch --since HEAD~1 --json
+```
+
+You can also run it as a module without installing the console script:
+
+```bash
+python -m graphify_diff analyze /path/to/repo
 ```
 
 ## What It Does

@@ -21,6 +21,8 @@ from .diff_parser import (
     ChangeType,
     DiffResult,
     FileChange,
+    current_head,
+    find_graph_path,
     get_git_diff,
     parse_diff,
 )
@@ -77,6 +79,7 @@ def apply_diff(
     output_path: Path | None = None,
     dry_run: bool = False,
     cascade_depth: int = 3,
+    built_at_commit: str | None = None,
 ) -> PatchResult:
     """Apply a parsed diff to a Graphify graph.
 
@@ -87,17 +90,21 @@ def apply_diff(
         output_path: Where to write the updated graph. Defaults to graph_path.
         dry_run: If True, compute changes but don't write.
         cascade_depth: How far to cascade dependency changes.
+        built_at_commit: Commit SHA to stamp as the graph's new baseline.
+            When set (and not a dry run), the graph's ``built_at_commit`` is
+            updated so subsequent runs diff from this point.
     """
     result = PatchResult(dry_run=dry_run)
     out = output_path or graph_path
 
     # Load existing graph
     if not graph_path.exists():
-        result.warnings.append(f"Graph not found at {graph_path}. Starting fresh.")
-        G = nx.Graph()
-        raw: dict[str, Any] = {"nodes": [], "edges": [], "hyperedges": []}
-    else:
-        G, raw = load_graph(graph_path)
+        raise RuntimeError(
+            f"No graph found at {graph_path}.\n"
+            "Run 'graphify extract' first to build the initial graph, "
+            "or pass --graph PATH to point at an existing graph.json."
+        )
+    G, raw = load_graph(graph_path)
 
     # Track edge counts for reporting
     initial_nodes = G.number_of_nodes()
@@ -129,6 +136,8 @@ def apply_diff(
 
     # Write output
     if not dry_run:
+        if built_at_commit:
+            raw["built_at_commit"] = built_at_commit
         save_graph(G, raw, out)
 
     return result
@@ -297,9 +306,14 @@ def run_from_git(
         cascade_depth: Dependency cascade depth.
     """
     repo = repo_path.resolve()
+    graph_path = find_graph_path(repo, graph_path)
 
-    if graph_path is None:
-        graph_path = repo / "graphify-out" / "graph.json"
+    if not graph_path.exists():
+        raise RuntimeError(
+            f"No graph found at {graph_path}.\n"
+            "Run 'graphify extract' first to build the initial graph, "
+            "or pass --graph PATH to point at an existing graph.json."
+        )
 
     # Get and parse diff
     raw_diff = get_git_diff(repo, since=since, staged=staged)
@@ -315,4 +329,5 @@ def run_from_git(
         output_path=output_path,
         dry_run=dry_run,
         cascade_depth=cascade_depth,
+        built_at_commit=current_head(repo) if not dry_run else None,
     )
