@@ -1,4 +1,4 @@
-# graphify-diff
+# Graphify-diff (`gdiff`)
 
 Incremental graph updates from git diffs — patch a [Graphify](https://github.com/safishamsi/graphify) knowledge graph without re-extracting the entire codebase.
 
