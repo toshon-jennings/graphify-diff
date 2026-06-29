@@ -1,4 +1,4 @@
-# Graphify-diff (`gdiff`)
+# graphify-diff (`gdiff`)
 
 Incremental graph updates from git diffs — patch a [Graphify](https://github.com/safishamsi/graphify) knowledge graph without re-extracting the entire codebase.
 
@@ -19,87 +19,73 @@ Graphify already has `graphify update`, which re-extracts only changed files. Bu
 
 `graphify-diff` skips all of that. It works at the **symbol level**, not the file level. If you change one function in a 500-line file, only that function's node and edges are touched.
 
-## Installation
+---
+
+## Quick start
 
 ```bash
 pip install graphify-diff
 ```
 
-## Usage
-
-`graphify-diff` installs a short `gdiff` command. Run it with **no arguments from
-inside a repo** — it auto-detects the repo and diffs against the last graph build
-(using the `built_at_commit` stamp Graphify writes into `graph.json`). Pass
-`--since` only to override that baseline. Every subcommand also works as a flag
-(`gdiff --analyze` is the same as `gdiff analyze`).
+Then run from inside a repo with **no arguments** — baseline is auto-detected from the last graph build:
 
 ```bash
-# From inside a repo — no args needed, baseline auto-detected
-gdiff analyze
-gdiff patch
+gdiff patch        # apply the diff to graph.json
+gdiff analyze      # read-only preview of what would change
+gdiff impact       # trace transitive effects on the graph
+```
 
-# Dry run to see what would change before patching
-gdiff patch --dry-run
+Override the baseline with `--since`:
 
-# Override the auto-detected baseline
+```bash
 gdiff patch --since HEAD~1
-gdiff patch --since main
-
-# Target a repo from anywhere
-gdiff analyze /path/to/repo
-gdiff patch /path/to/repo --since HEAD~1
-
-# Show cascading impact on existing graph
-gdiff impact
-
-# Use a custom graph.json location
-gdiff patch /path/to/repo --graph /custom/path/graph.json
-
-# Output machine-readable JSON
-gdiff patch --since HEAD~1 --json
+gdiff patch . --since main     # run from outside the repo
 ```
 
-You can also run it as a module without installing the console script:
+---
 
-```bash
-python -m graphify_diff analyze /path/to/repo
-```
+## Subcommands
 
-## What It Does
+| Command | What it does |
+|---------|-------------|
+| `gdiff patch` | Apply a git diff to graph.json — cascades through dependent nodes (default depth: 3) |
+| `gdiff analyze` | Read-only parse of what would change — no graph required |
+| `gdiff impact` | Trace transitive effects on the existing graph — does not modify it |
 
-1. **Parses git diff** — identifies added, removed, and modified files
-2. **Extracts symbol changes** — detects which functions/classes were added or removed using language-aware regex patterns (Python, TypeScript, JavaScript, Go, Rust, Java, Kotlin, C/C++, Ruby, Bash, and generic fallbacks)
-3. **Patches the graph** — removes nodes for deleted symbols, creates stub nodes for new symbols, updates modified nodes
-4. **Cascades changes** — finds nodes that depend on changed symbols and marks them for review
-5. **Re-clusters locally** — re-runs community detection only on affected communities (requires `python-louvain` for best results)
+### Patch flags
 
-## Limitations
+| Flag | Description |
+|------|-------------|
+| `--since / -s <ref>` | Git ref to diff against (auto-detected if omitted) |
+| `--staged` | Diff staged changes instead of unstaged |
+| `--dry-run / -n` | Show what would change without writing |
+| `--cascade-depth / -d <n>` | How far to cascade dependency changes (default: 3) |
+| `--graph / -g <path>` | Path to graph.json (default: `graphify-out/graph.json`) |
+| `--output / -o <path>` | Output path (default: overwrite input) |
+| `--json` | Emit machine-readable JSON output |
 
-- **New files** get stub nodes. Run `graphify update` later for full extraction.
-- **Semantic edges** (LLM-inferred relationships) are not re-computed. The tool only handles structural changes.
-- **Cross-file symbol resolution** is conservative — it won't guess which file a symbol belongs to if there are ambiguities.
-- **Supported languages**: Python, TypeScript/JavaScript, Go, Rust, Java/Kotlin, C/C++, Ruby, Bash. Other languages get generic pattern matching.
+### Analyze & impact flags
 
-## Architecture
+| Flag | Description |
+|------|-------------|
+| `--since / -s <ref>` | Git ref to diff against |
+| `--staged` | Diff staged changes |
+| `--depth / -d <n>` | Cascade depth for impact analysis |
+| `--graph / -g <path>` | Path to graph.json |
 
-```
-git diff → parse_diff() → DiffResult
-    ↓
-DiffResult → apply_diff() → PatchResult
-    ↓
-  ┌─────────────────────────────────────┐
-  │ For each changed file:              │
-  │  1. cascade_*() — find impacted     │
-  │  2. remove_symbol_nodes() — delete  │
-  │  3. add_nodes_and_edges() — create  │
-  │  4. mark_affected_for_review()      │
-  └─────────────────────────────────────┘
-    ↓
-recluster_affected_communities()
-    ↓
-save_graph()
-```
+---
+
+## Project links
+
+| | |
+|---|---|
+| **Source** | [github.com/toshon-jennings/graphify-diff](https://github.com/toshon-jennings/graphify-diff) |
+| **PyPI** | [pypi.org/project/graphify-diff](https://pypi.org/project/graphify-diff) |
+| **Issues** | [GitHub Issues](https://github.com/toshon-jennings/graphify-diff/issues) |
+| **Changelog** | [CHANGELOG.md](CHANGELOG.md) |
+
+---
 
 ## License
 
-MIT
+MIT © 2026 Toshon Jennings
