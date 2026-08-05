@@ -1,5 +1,9 @@
 # graphify-diff (`gdiff`)
 
+<p align="center">
+  <img src="https://raw.githubusercontent.com/toshon-jennings/graphify-diff/main/assets/og-image.png" alt="graphify-diff symbol graph patcher" width="900">
+</p>
+
 Incremental graph updates from git diffs — patch a [Graphify](https://github.com/safishamsi/graphify) knowledge graph without re-extracting the entire codebase.
 
 ## The Problem
