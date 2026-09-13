@@ -86,7 +86,7 @@ gdiff patch . --since main     # run from outside the repo
 | **Source** | [github.com/toshon-jennings/graphify-diff](https://github.com/toshon-jennings/graphify-diff) |
 | **PyPI** | [pypi.org/project/graphify-diff](https://pypi.org/project/graphify-diff) |
 | **Issues** | [GitHub Issues](https://github.com/toshon-jennings/graphify-diff/issues) |
-| **Changelog** | [CHANGELOG.md](CHANGELOG.md) |
+| **Changelog** | [GitHub Releases](https://github.com/toshon-jennings/graphify-diff/releases) |
 
 ---
 
